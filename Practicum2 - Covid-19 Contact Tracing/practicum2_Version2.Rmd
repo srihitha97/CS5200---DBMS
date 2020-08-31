@@ -1,0 +1,930 @@
+---
+title: "<center>Practicum-2 Build a Database Application- Contact Tracer</center>"
+output:
+  html_document:
+    df_print: paged
+---
+<center> 
+**Varshitha Uppula**
+<br>
+**Saisrihitha Yadlapalli**
+<br>
+**Jing Chen**
+<br>
+**(Group 3)**
+
+<br>
+<br>
+</center>
+
+
+```{r setup, cache = F}
+knitr::opts_chunk$set(error = TRUE)
+```
+
+### Modification made to the previous table to satisfy current requirements :
+
+Added a new attribute *age* which is derived from the attribute *DOB* in the *naiveUser* table.
+<br>
+
+![Fig : Logical Diagram](contactTrace.png)
+
+[Link to Logical Model](https://app.lucidchart.com/invitations/accept/55d3e1a0-dc6e-4a04-8d6c-6d30657dec3e)
+
+
+```{r echo =FALSE, warning = FALSE, message= FALSE, INCLUDE = FALSE}
+list.of.packages <- c("RMySQL", "DBI", "odbc")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+library(DBI)
+library(RMySQL)
+library(odbc)
+
+contactTrace <- dbConnect(MySQL(), dbname="contactTracer",host = "localhost", 
+                 user='root',password='PASSWORD')
+```
+
+
+## 1. Create a view 
+
+In SQL, a "view" is a virtual table. It lets you package a complex query into a single table and simplify reporting. Once the view is created it can be used in queries like any other table. Updates through views are possible in some situations but generally views are read-only database objects. 
+<br>
+The view below is based on four tables and involves a join. Tables used for creating the view are naiveUser, test, survey and lab. It is created to help abstract a complex query. 
+
+
+```{r message = FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"DROP View IF EXISTS UserCovidData;")
+query1=" CREATE VIEW UserCovidData 
+AS
+SELECT naiveUser.naiveUserID,lab.labName, test.testType, test.testDate,survey.maskWorn,survey.dateOfSurvey,
+CASE WHEN test.result = FALSE THEN 'Negative'
+ELSE 'Positive'
+END AS TestResult
+FROM naiveUser, test, lab, survey
+WHERE lab.labID= test.labID AND
+test.naiveUserID = naiveUser.naiveUserID AND
+naiveuser.naiveUserID=survey.naiveUserId ;"
+
+dbGetQuery(contactTrace,query1)
+
+```
+![Fig : View created in MySQL when above statments are run](view.png)
+
+## 2. Query the created view
+
+This query is performed on the view created above to find details of users who tested positive and did not wear a mask at least once in the past 10 days from when they tested positive. 
+
+We can see that all the data of the users who tested positive and have updated that they did not wear a mask at least once in the past 10 days  is retrieved. For e.g, User 57 has tested positive on 2020-04-28 and has recorded that he did not wear a mask on 24-04-2020 and on 2020-04-22. This information can further be used to determine the risk of the contacts this patient has met. 
+```{r message= FALSE, warning=FALSE}
+query2<- "SELECT userCovidData.naiveUserID, userCovidData.testType, userCovidData.testDate, userCovidData.DateOfSurvey, testResult, maskWorn
+ FROM contacttracer.usercoviddata
+ WHERE userCovidData.dateOfSurvey >= DATE_SUB(userCovidData.testDate, INTERVAL 10 DAY) AND
+userCovidData.dateOfSurvey <= userCovidData.testDate
+AND userCovidData.TestResult = 'Positive'
+AND userCovidData.maskWorn = FALSE;"
+
+rs = dbSendQuery(contactTrace,query2)
+result1<-dbFetch(rs)
+result1
+```
+
+
+## 3. Implement CRUD using R
+
+CRUD is an acronym for Create, Read, Update, and Delete. CRUD operations are basic data manipulation for the database. create (i.e. insert), read (i.e. select), update and delete operations are implemented below using functions in R
+
+### CREATE : Data is inserted into the address table
+
+```{r message = FALSE, INCLUDE =FALSE, results= 'hide', warning=FALSE}
+insertAddress <- function(addZip, addCity, addState) { 
+
+query3<-paste0("INSERT INTO address(zipcode,city,state) 
+
+VALUES (", addZip, "," ,"'",addCity,"'", "," ,"'",addState,"'" ,");") 
+
+dataInserted<- dbGetQuery(contactTrace,query3) 
+
+} 
+
+
+```
+ 
+ Call the function insertAddress() to insert data into the database.
+ 
+```{r message = FALSE, INCLUDE =FALSE, results= 'hide', warning=FALSE}
+insertAddress(21017,'Boston','MA')
+insertAddress(89371,'Seattle','WA')
+insertAddress(53742,'Dallas','TX')
+insertAddress(53725,'Dallas','TX')
+
+```
+ 
+ ![Fig : Data inserted into address table](CRUD1.png)
+ 
+ 
+### RETRIEVE: Data is retrieved from the address table based on the zipcode passed 
+ 
+```{r message=FALSE, warning=FALSE}
+viewZip <- function(zip) { 
+
+query4 <- paste0("SELECT * FROM address WHERE zipCode =", zip) 
+
+print("Data Viewed") 
+
+rs<-dbGetQuery(contactTrace,query4) 
+rs
+} 
+
+```
+ 
+ Call the function viewZip() to retrieve data and pass the value of a valid zipcode that exists
+ 
+```{r message=FALSE, warning=FALSE}
+
+viewZip(21017) 
+
+```
+
+### UPDATE: The city in the address table is updated with a WHERE condition on the zipcode 
+ 
+```{r message=FALSE, warning=FALSE}
+updateAddress <- function(addrCity,addrZip) { 
+
+ query5 <- paste0("UPDATE address SET city =","'",addrCity,"'","WHERE zipcode =",addrZip) 
+
+ dbGetQuery(contactTrace,query5) 
+} 
+ 
+
+ 
+
+
+```
+
+Call the function updateAddress to update the city of a given zipcode and then retrieve the data to check if the update happened successfully <br>
+Before Update
+ 
+```{r message = FALSE, warning=FALSE}
+viewZip(21017) 
+```
+
+After Update -
+```{r message = FALSE, warning=FALSE}
+updateAddress('Salem',21017)
+viewZip(21017) 
+```
+ 
+ 
+ 
+### DELETE: Delete is performed on address table based on WHERE condition on zipcode
+
+```{r message=FALSE, warning=FALSE}
+deleteAddress <- function(addrZip) {
+
+query6 <- paste0("DELETE FROM address WHERE zipcode =",addrZip)
+
+dbGetQuery(contactTrace,query6)
+}
+```
+
+Before Delete
+```{r message=FALSE, warning=FALSE}
+viewZip(53742)
+```
+
+After delete 
+```{r message=FALSE, warning=FALSE}
+deleteAddress(53742)
+viewZip(53742)
+```
+
+
+## 7. Transaction logic to support CRUD operations that span multiple tables. (Task 4 is after this)
+ 
+### Transaction logic to INSERT
+ 
+ A transaction logic to help achieve generalization is implemented here. Whenever an insert occurs in the parent class, an insert should also be made in either of the child classes.
+
+ <br>
+**Code Explanation** - We have a function which accepts the below parameters:
+ 
+**input** : A single input which is used to determine if the transaction should run on healthMonitorAdmin and appUser or if it needs to run on naiveUser and appUser.
+<br>
+**valuesAppUser**: Vector with values that need to be inserted into the appUser table
+<br>
+**valuesHealthAdmin**:Vector with values that need to be inserted into the healthMonitorAdmin table
+<br>
+**valuesNaiveUser**:Vector with values that need to be inserted into the naiveUser table
+<br>
+
+Since the code runs as a transaction it will ensure that the parent class cannot exist by itself and the userID of the parent is inserted as the naiveUserID or adminID of the child class as well.
+
+```{r }
+addUser<-function(input,valuesappUser, valuesHealthAdmin, valuesNaiveUser){
+    if(input=="healthMonitorAdmin"){
+        
+        dbBegin(contactTrace)
+      
+        query<-paste0("INSERT INTO appUser(userID, userPassword, firstName, lastName,phone)  
+                      VALUES (",valuesappUser[1],",'", valuesappUser[2],"','",valuesappUser[3],"','",valuesappUser[4],"','",valuesappUser[5],"');") 
+        query2<-paste0("INSERT INTO healthMonitorAdmin(adminID, regLat, regLong, qualification)  
+            VALUES (",valuesappUser[1],",'", valuesHealthAdmin[1],"','",valuesHealthAdmin[2],"','",valuesHealthAdmin[3],"');") 
+  tryCatch({rowsAffected <- dbExecute(contactTrace, query)},
+    error = function(e){
+      message("An error occurred when inserting appUser data:\n", e)
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )
+  tryCatch({rowsAffected <- dbExecute(contactTrace, query2)},
+    error = function(e){
+      message("Missing information for HealthMonitorAdmin:\n")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )     
+      dbCommit(contactTrace)
+    }
+else {
+        dbBegin(contactTrace)
+        query3<-paste0("INSERT INTO appUser(userID, userPassword, firstName, lastName,phone)
+                      VALUES (",valuesappUser[1],",'", valuesappUser[2],"','",valuesappUser[3],"','",valuesappUser[4],"','",valuesappUser[5],"');")
+        query4<-paste0("INSERT INTO naiveUser(naiveUserID, gender, dob, immunoCompromised,lastSync,livingSituation,infectionStatus,zipcode)
+             VALUES (",valuesappUser[1],",'", valuesNaiveUser[1],"','",valuesNaiveUser[2],"',",valuesNaiveUser[3],",'",valuesNaiveUser[4],"','",valuesNaiveUser[5],"','",valuesNaiveUser[6],"','",valuesNaiveUser[7],"');")
+  tryCatch({rowsAffected <- dbExecute(contactTrace, query3)},
+    error = function(e){
+      message("An error occurred when inserting appUser data:\n", e)
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )   
+   tryCatch({rowsAffected <- dbExecute(contactTrace, query4)},
+    error = function(e){
+      message("Missing information for naiveUser:\n")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )   
+    }
+}
+```
+ 
+**If insert happens without a transaction, we can see that an entry can exist in appUser even though the corresponding entry does not exist in naiveUser or healthMonitorAdmin.**
+<br>
+
+![](Transaction_c1.png)
+<br>
+
+![](Transaction_c2.png) 
+<br>
+
+![](Transaction_c3.png) 
+<br>
+
+
+
+If we use the above transaction logic for insert, we need to insert into both the appUser and either of the child classes simultaneously.
+
+If we insert using transaction, we cannot perform insert only on appUser, the transaction will commit only if both the inserts into parent and child happen correctly.<br>
+
+**If we insert data into healthMonitorAdmin and appUser table at the same time, then the transaction commits.**
+
+```{r}
+input<-"healthMonitorAdmin"
+valuesappUser<-c(112,"wergeqe","Varshitha","uppgs","15446373 5008")
+valuesHealthAdmin <- c("75.31306","158.84824", "MD")
+addUser(input,valuesappUser,valuesHealthAdmin,'')
+
+```
+
+View the inserted data for healthMonitorAdmin and appUser
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"SELECT * FROM appUser
+WHERE userID = 112")
+dbGetQuery(contactTrace,"SELECT * FROM healthMonitorAdmin
+WHERE adminID = 112")
+```
+
+**If we insert data into naiveUser and appUser table at the same time, then the transaction commits.**
+
+```{r }
+input<-"naiveUser"
+valuesappUser<-c(66,"ehrjsfhj","Emerson","thajore","14140312 9162")
+valuesNaiveUser<- c("Female","1970/01/13",TRUE,"2020-06-01 22:16:29","isolated","suspected","46833")
+addUser(input,valuesappUser,'',valuesNaiveUser)
+```
+
+View the inserted data for naiverUser and appUser
+```{r }
+dbGetQuery(contactTrace,"SELECT * FROM appUser
+WHERE userID = 66")
+dbGetQuery(contactTrace,"SELECT * FROM naiveUser
+WHERE naiveuserID = 66")
+```
+
+**If we insert data into appUser table with missing information for healthMonitorAdmin, the transaction rolls back.**
+```{r}
+input<-"healthMonitorAdmin"
+valuesappUser<-c(134,"wergeqe","Varshitha","uppgs","15440373 5008")
+valuesHealthAdmin <- c("","", "")
+addUser(input,valuesappUser,valuesHealthAdmin,'')
+
+```
+
+
+**If we insert data into appUser table with missing information for naiveUser, the transaction rolls back.**
+```{r }
+input<-"naiveUser"
+valuesappUser<-c(180,"ehrjsfhj","Emerson","thajore","14140112 9162")
+valuesNaiveUser<- c("","","","","","","")
+addUser(input,valuesappUser,'',valuesNaiveUser)
+```
+
+### Transaction logic to UPDATE 
+
+The below transaction ensures that we update risk of a user in the notification table if we make an update to the infectionStatus in the naiveUser table. 
+<br>
+```{r }
+updateTrans<- function(naiveUserID,infectStatus,risk){
+    dbBegin(contactTrace)
+    query1<-paste0("UPDATE naiveUser
+SET naiveUser.infectionStatus =","'",infectStatus,"'","
+WHERE naiveUserID = ", naiveUserID," AND immunoCompromised = TRUE and livingSituation= 'group';")
+
+    query2<- paste0(" UPDATE notification SET infectionRisk = ","'",risk,"'","
+WHERE userID =",naiveUserID,";")
+if(risk==""){
+            message("InfectionRisk is required for updating")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")
+    }
+if(infectStatus==""){
+            message("InfectionStatus is required for updating")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")
+    }
+
+
+dbCommit(contactTrace)
+}
+```
+<br>
+
+
+If we perform an update without this transaction, then a person's whose infection status is set as 'suspected' when he is immunocompromised and lives in a group but the risk of the person in the notification table might show inconsistent old values as its not updated simultaneously. 
+<br>
+![](Transaction_u1.png)
+<br>
+
+![](Transaction_u2.png)
+<br>
+
+But if we run the transaction, we can ensure that the risk of the person is up-to-date and consistent as and when the infection status is modified. 
+
+Testing:
+```{r message=FALSE, warning=FALSE}
+updateTrans(8,'suspected','High' )
+```
+
+The transaction ensures that both the risk and infection status of a user are updated so that there is no inconsistency in our database.
+<br>
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"SELECT * FROM naiveUser 
+WHERE naiveUserID = 8")
+
+dbGetQuery(contactTrace,"SELECT * FROM notification 
+WHERE UserID = 8")
+```
+
+If we only update infectionStatus or only update infectionRisk, the transaction rolls back.
+<br>
+```{r}
+updateTrans(8,'suspected','' )
+```
+
+```{r}
+updateTrans(8,'','High' )
+```
+### Transaction logic to RETRIEVE
+
+The transaction on select/retrieve operation ensures that both the infection status and test result that are present in different tables are executed such that there is no inconsistency. For e.g, if SELECT is performed on the infection status but some other user updates the test results, the transaction logic ensures that this cannot occur.
+    
+
+```{r message=FALSE, warning=FALSE}
+
+selectTransaction<-function(ID){
+dbBegin(contactTrace)
+query1<-paste0(
+"SELECT naiveUserID, infectionStatus FROM naiveUser
+WHERE naiveUserID=",ID)
+query2<-paste0(
+"SELECT testID, result as 'Test Result' FROM test
+WHERE naiveUserID=",ID)
+tryCatch({df1 <- dbGetQuery(contactTrace, query1)},
+    error = function(e){
+      message("An error occurred when retrieving data", e)
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )
+tryCatch({df2 <- dbGetQuery(contactTrace, query2)},
+    error = function(e){
+      message("An error occurred when retrieving data", e)
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )
+newlist <- list(df1,df2)
+return(newlist)
+dbCommit(contactTrace)
+
+}
+
+```
+
+Call the function to view the transaction result
+
+When retrieve data using the correct ID
+```{r }
+selectTransaction(8)
+```
+
+When retrieve data using the wrong ID 
+```{r}
+selectTransaction("A")
+```
+ 
+### Transaction logic to DELETE
+
+This transaction is designed for enforcing generalizaion. An appUser is either a naiveUser or healthMonitorAdmin. Therefore, when deleting records from naiveUser table or heathMonitorAdmin table, we need to  make sure that the records that have the same primary key are also deleted. The function has two inputs: ID and type. If entered type is "naiveUser", it will delete the tuple with the entered ID from naiveUser and appUser tables. If entered type is "healthMonitorAdmin", it will delete the tuple with the entered ID from healthMonitorAdmin and appUser. 
+
+
+```{r message=FALSE,warning=FALSE}
+deleteUser<-function(ID,ID2,type){
+if(type=="naiveUser"){
+dbBegin(contactTrace)
+query1<-paste0(
+"DELETE naiveUser FROM naiveUser
+WHERE naiveUserID=",ID," ;")
+query2<-paste0(
+"DELETE appUser FROM appUser
+WHERE userID=",ID2," ;")
+tryCatch({df2 <- dbGetQuery(contactTrace, query1)},
+    error = function(e){
+      message("Data needs to be deleted from naiveUser table at the same time")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )
+tryCatch({df2 <- dbGetQuery(contactTrace, query2)},
+    error = function(e){
+      message("Data needs to be deleted from appUser table at the same time")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )
+dbCommit(contactTrace)
+}
+else{
+dbBegin(contactTrace)
+query3<-paste0(
+"DELETE healthMonitorAdmin FROM healthMonitorAdmin
+WHERE adminID=",ID," ;")
+query4<-paste0(
+"DELETE appUser FROM appUser
+WHERE userID=",ID2," ;")
+tryCatch({df2 <- dbGetQuery(contactTrace, query3)},
+    error = function(e){
+      message("Data needs to be deleted from healthMonitorAdmin table at the same time")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )
+tryCatch({df2 <- dbGetQuery(contactTrace, query4)},
+    error = function(e){
+      message("Data needs to be deleted from appUser table at the same time")
+      dbRollback(contactTrace)
+      stop("Transaction rollbacked")}
+    )
+dbCommit(contactTrace)
+}
+}
+```
+
+
+Before deletion
+
+```{r }
+dbGetQuery(contactTrace,"Select * FROM naiveUser 
+           WHERE naiveUser.naiveUserID=3;")
+dbGetQuery(contactTrace,"Select * FROM appUser 
+           WHERE appUser.userID=3;")
+```
+
+After deletion
+
+ ![Fig : naiveUser table after deletion using transaction](Transaction_d1.png)
+```{r message=FALSE, warning=FALSE}
+deleteUser(3,3,"naiveUser")
+dbGetQuery(contactTrace,"Select * FROM naiveUser 
+           WHERE naiveUser.naiveUserID=3;")
+dbGetQuery(contactTrace,"Select * FROM appUser 
+           WHERE appUser.userID=3;")
+```
+
+The transaction rolled back when we delete data from only one table.
+
+```{r}
+deleteUser(1,"","naiveUser")
+```
+```{r}
+deleteUser("",1,"naiveUser")
+
+```
+
+```{r}
+deleteUser(1,"1","heathMonitorAdmin")
+
+```
+
+```{r}
+deleteUser("",1,"heathMonitorAdmin")
+
+```
+
+
+
+
+## 4.TRIGGER to handle data integrity
+
+**TRIGGER 1**
+
+A trigger called TR_naiveUserDOB_beforeInsert is created on the table naiveUser to ensure that the date of birth cannot be greater than the current date. An alert is sent to the user prompting them to enter the right date of birth. This trigger is run before INSERT operation is performed on the table naiveUser. 
+
+```{r message = FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"DROP TRIGGER IF EXISTS TR_naiveUserDOB_beforeInsert;")
+dbGetQuery(contactTrace,"
+    CREATE TRIGGER TR_naiveUserDOB_beforeInsert 
+    BEFORE INSERT ON naiveuser
+    FOR EACH ROW
+    BEGIN
+        IF (NEW.dob > CURDATE()) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Date of birth cannot be after current date, please enter a valid Date of birth'; 
+        END IF;
+    END")
+```
+
+Verifying that the trigger is working correctly by trying to insert a date of birth that is greater than current date using the function created in transaction logic to insert data. 
+
+```{r}
+input<-"naiveUser"
+valuesappUser<-c(64,"rji5TJS3UA","Kendall","thajore","15110314 9162")
+valuesNaiveUser<- c("Female","2021/01/13",TRUE,"2020-06-01 22:16:29","isolated","suspected","46833")
+addUser(input,valuesappUser,'',valuesNaiveUser)
+```
+**TRIGGER 2**
+
+A trigger called TR_naiveUserDOB_beforeUpdate is created on the Table naiveUser to ensure that the date of birth cannot be greater than the current date when an update is performed on the table. An alert is sent to the user prompting them to enter the right date of birth. This trigger is run before UPDATE operation is performed on the table naiveUser. 
+
+```{r message = FALSE, INCLUDE =FALSE, results= 'hide', warning=FALSE}
+dbGetQuery(contactTrace,"DROP TRIGGER IF EXISTS TR_naiveUserDOB_beforeUpdate;")
+dbGetQuery(contactTrace," 
+
+CREATE TRIGGER TR_naiveUserDOB_beforeUpdate 
+
+BEFORE UPDATE ON naiveuser 
+
+FOR EACH ROW 
+
+BEGIN 
+
+  IF (NEW.dob > CURDATE()) THEN 
+
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'date of birth cannot be after current date'; 
+
+  END IF; 
+
+END")
+```
+
+Verifying that the trigger is working correctly by trying to update date of birth with a date that is greater than current date. 
+
+```{r}
+dbGetQuery(contactTrace,"UPDATE naiveUser
+SET naiveUser.DOB = '2021/08/14'
+WHERE naiveUserID= 1;") 
+```
+
+## 5. TRIGGER for derived attribute
+<br>
+Trigger to calculate derived attribute 'age' from date of birth when new record is inserted into the naiveuser table
+```{r  message = FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"DROP TRIGGER IF EXISTS TR_naiveUserAge_beforeINSERT;")
+dbGetQuery(contactTrace,"
+CREATE TRIGGER TR_naiveUserAge_beforeINSERT 
+BEFORE INSERT 
+ON naiveUser FOR EACH ROW 
+BEGIN 
+SET NEW.age = YEAR(CURDATE()) - YEAR(NEW.dob); 
+END")
+```
+
+Pass the details of the NaiveUser date of birth in the insert statement. 
+```{r warning = FALSE}
+input<-"naiveUser"
+valuesappUser<-c(67,"AOY71uaZ3Fa","Sneha","Ravi","14410329 6594")
+valuesNaiveUser<- c("Female","1978/04/02",TRUE,"2020-03-03 09:46:14","group","infected","53725")
+addUser(input,valuesappUser,'',valuesNaiveUser)
+```
+
+
+Testing trigger to ensure that the data is created correctly i.e calculation of derived attribute age.
+```{r warning = FALSE }
+dbGetQuery(contactTrace," SELECT * FROM naiveUser WHERE naiveUserID = 67 ")
+```
+
+
+**Trigger to update the age if any modification is done to the date of birth:** 
+
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"DROP TRIGGER IF EXISTS TR_naiveUserAge_beforeUpdate;")
+dbGetQuery(contactTrace,"
+CREATE TRIGGER TR_naiveUserAge_beforeUpdate 
+BEFORE UPDATE 
+ON naiveUser FOR EACH ROW 
+BEGIN 
+SET NEW.age = YEAR(CURDATE()) - YEAR(NEW.dob);  
+END")
+```
+
+
+Testing trigger to ensure that the data is created correctly
+
+Before insert 
+
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace," SELECT * FROM naiveUser WHERE naiveUserID = 67 ")
+```
+<br>
+Update the date of birth for the user from 1985-04-02 to 1997-04-02
+
+```{r}
+dbGetQuery(contactTrace," UPDATE naiveUser SET dob = '1997/04/02'  WHERE naiveUserID = 67 ")
+dbGetQuery(contactTrace," SELECT * FROM naiveUser WHERE naiveUserID = 67 ")
+```
+
+## 6. STORED PROCEDURE
+
+A stored procedure is a group of SQL statements that form a logical unit and perform a particular task, and they are used to encapsulate a set of operations or queries to execute on a database server. Here we created a stored procedure to calculate the infection risk of a person based on various factors from other tables.
+<br>
+
+Infection status is calculated as below:
+<br>
+**Infected** : If the most recent test conducted on a naiveUser shows result as positive, then the user's infection status is set as Infected.
+<br>
+**Not-Infected**: If the most recent test of a person shows negative then the persons status is set as not-infected.
+<br>
+**Suspected**: If a user shows 2 or more symptoms then he is considered as a suspect.
+<br>
+
+```{r message=FALSE, warning=FALSE}
+ df <- dbGetQuery(contactTrace, "DROP PROCEDURE IF EXISTS infectionstatus_update;" )
+
+storedP <- "
+
+Create Procedure infectionstatus_update(IN ID INT) 
+
+ 
+
+    BEGIN 
+
+ 
+
+    UPDATE naiveUser 
+
+ 
+
+    INNER JOIN test ON naiveUser.naiveUserID = test.naiveUserID 
+
+ 
+
+    SET naiveUser.infectionStatus = 'infected' 
+
+ 
+
+    WHERE naiveUser.naiveUserID=ID AND test.result = TRUE AND (testDate IN (SELECT max(testDate) FROM test WHERE test.naiveUserID=ID)); 
+
+ 
+
+    UPDATE naiveUser 
+
+ 
+
+    INNER JOIN test ON naiveUser.naiveUserID = test.naiveUserID 
+
+ 
+
+    SET naiveUser.infectionStatus = 'not-infected'
+
+ 
+
+    WHERE naiveUser.naiveUserID=ID AND test.result = FALSE AND (testDate IN (SELECT max(testDate) FROM test WHERE test.naiveUserID=ID)); 
+
+ 
+
+    UPDATE naiveUser 
+
+ 
+
+    LEFT JOIN test ON naiveUser.naiveUserID=test.naiveUserID 
+
+ 
+
+    INNER JOIN (Select naiveUserID, survey.dateOfSurvey as dates, count(symptomID) as symptomCount 
+
+ 
+
+        from survey 
+
+ 
+
+        INNER JOIN surveySymptom ON surveySymptom.surveyID=survey.surveyID 
+
+ 
+
+        group by survey.naiveUserID, survey.surveyID, survey.dateOfSurvey) total_count ON naiveUser.naiveUserID=total_count.naiveUserID 
+
+ 
+
+    SET naiveUser.infectionStatus = 'suspected'
+
+ 
+
+    WHERE naiveUser.naiveUserID=ID AND test.result IS NULL AND total_count.symptomCount>=2 AND (dates IN (SELECT max(dateOfSurvey) FROM survey WHERE survey.naiveUserID=ID)); 
+
+ 
+
+    END"
+dbGetQuery(contactTrace,storedP)
+ 
+```
+Testing if the stored procedure works as expected:
+<br>
+The view is created to show the results
+<br>
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"DROP VIEW IF exists infection_test;")
+dbGetQuery(contactTrace,"
+           CREATE VIEW infection_test AS SELECT naiveUser.naiveUserID as naiveUserID, naiveUser.infectionStatus, test.result as 'test result', test.testDate,
+              survey.dateOfSurvey as dateOfSurvey, count(*) as 'Number of Symptoms' FROM
+ naiveUser
+ LEFT JOIN test
+ ON naiveUser.naiveUserID = test.naiveUserID
+ LEFT JOIN survey
+ ON naiveuser.naiveUserID= survey.naiveUserID
+ JOIN surveySymptom ON survey.surveyID = surveySymptom.surveyID
+ WHERE naiveuser.naiveUserID in (53,30)
+ Group by naiveUser.naiveUserID, test.result, survey.dateOfSurvey, test.testDate;
+ ")
+```
+ 
+Before running stored procedure
+ 
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"SELECT * from infection_test;")
+```
+ 
+**1) check if infection status is set as infected if test is positive after running the stored procedure**
+<br>
+
+We can see that the infection status of user 53 on running the stored procedure has become infected based on the test result of the most recent test date
+
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace, "CALL infectionstatus_update(53);" )
+dbGetQuery(contactTrace,"SELECT * from infection_test;")
+```
+
+Add a new entry into above user with test result as negative
+
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace,"INSERT into test(testID, testType, testDate, result, naiveUserID, labID)
+VALUES(39,'Antibody','2020/05/20',FALSE,53,5);")
+dbGetQuery(contactTrace,"SELECT * from infection_test;")
+```
+
+**2) check if infection status is reset as not-infected**
+
+```{r message=FALSE, warning=FALSE}
+dbGetQuery(contactTrace, "CALL infectionstatus_update(53);" )
+dbGetQuery(contactTrace,"SELECT * from infection_test;")
+```
+
+**3) Check if infection status is updated to suspected for a user who shows two or more symptoms**
+
+
+```{r}
+dbGetQuery(contactTrace, "CALL infectionstatus_update(30);" )
+dbGetQuery(contactTrace, "SELECT * from infection_test;" )
+```
+
+
+## 8. Query plan
+<br>
+
+Query alternative 1 and 2 are the two queries that give the same results by using different methods. 
+<br>
+
+**Query alternative 1** 
+<br>
+
+EXPLAIN SELECT Count(test.testID), lab.labName <br>
+FROM lab,test <br>
+WHERE test.labID = lab.labID <br>
+GROUP BY lab.labID <br>
+HAVING lab.labName ='cursus'; <br> 
+
+```{r}
+dbGetQuery(contactTrace,"SELECT Count(test.testID), lab.labName
+FROM lab,test
+WHERE test.labID = lab.labID
+GROUP BY lab.labID
+HAVING lab.labName ='cursus';")
+```
+
+
+![Fig : Query evaluation of query1 using EXPLAIN](Query8.png)
+
+<br> **Query alternative 2** <br>
+
+EXPLAIN SELECT Count(test.testID), lab.labName <br>
+FROM lab,test <br>
+WHERE test.labID = lab.labID AND lab.labName = 'cursus' <br>
+GROUP BY lab.labID; <br><br>
+
+```{r}
+dbGetQuery(contactTrace,"SELECT Count(test.testID), lab.labName
+FROM lab,test
+WHERE test.labID = lab.labID AND lab.labName = 'cursus'
+GROUP BY lab.labID;")
+```
+
+![Fig : Query evaluation of query2 using EXPLAIN](Query8_2.png)
+
+**Each of the rows in the EXPLAIN contains the following fields:** <br>
+
+**id** - In most cases, the id field will present a sequential number of the SELECT query this row belongs to. The queries above contains no subqueries nor unions, so therefore the id for both rows is 1, as there is actually only 1 query. <br>
+
+**select_type** - The type of SELECT query. In our case, both are SIMPLE queries as they contain no subqueries or unions. <br>
+
+**table** - the table name <br>
+
+**type** - defines how the tables are accessed / joined. <br>
+
+**possible_keys** - The optional indexes MySQL can choose from, to look up for rows in the table. Some of the indexes in this list can be actually irrelevant, as a result of the execution order MySQL chose. In general, MySQL can use indexes to join tables. Said that, it won't use an index on the first table's join column, as it will go through all of its rows anyway (except rows filtered by the WHERE clause). <br>
+
+**key** - This column indicates the actual index MySQL decided to use. <br>
+
+**key_len** - This is one of the important columns in the explain output. It indicates the length of the key that MySQL decided to use, in bytes. In the EXPLAIN outputs above, MySQL uses the entire PRIMARY index (4 bytes). Unfortunately, there is no easier way to figure out which part of the index is used by MySQL, other than aggregating the length of all columns in the index and comparing that to the key_len value. <br>
+
+**rows** - Indicates the number of rows MySQL believes it must examine from this table, to execute the query. This is only an estimation. Usually, high row counts mean there is room for query optimization. <br>
+
+**filtered** - The filtered column indicates an estimated percentage of table rows that will be filtered by the table condition. Rows × filtered / 100 shows the number of rows that will be joined with previous tables. <br> 
+
+<br> **Comparing the plans for the above two queries using the Visual explain plan** <br>
+
+The Visual Explain feature generates and displays a visual representation of the MySQL EXPLAIN statement by using extended information available in the extended JSON format. <br>
+
+
+<br> **Visual explain plan for query 1 ** <br>
+
+![Fig : Query evaluation of query1 Visually](Q8_visual1.png)
+
+For the query alternative 1, MySQL believes it must examine 30 rows from this table to execute the query. Among these 30 rows, 100% of them would be filtered by the table condition using index. For query 1, the full test table index scan is estimated to costs 4 milliseconds and Unique Key Lookup, which finds an index that can be used to retrieve the required records, is estimated to cost 10.5 milliseconds. The estimated query cost is 14.5 milliseconds. <br>
+
+<br>**Visual explain plan for query 2**
+
+![Fig : Query evaluation of query2 Visually](Q8_visual2.png)
+
+<br> In query 2,  the Where clause acts as a pre filter where as Having as a post filter. MySQL believes it must examine 50 rows from this table to execute the query. Among these 50 rows, 10% of them would be filtered by Where statement. The full table index scan for lab table with 50 rows is estimated to costs 5.25 milliseconds and The unique key lookup in the test table is estimated to cost only 1.93 milliseconds. In total, the estimated query cost is 7.18 milliseconds for query 2. <br>
+<br>
+**Comparision:** <br>
+If filtering can be done without aggregate function (HAVING) then it must be done using the WHERE clause as it improves the performance since counting and sorting will be done on a much smaller set. If the same rows are filtered after grouping, you unnecessarily bear the cost of sorting, which is not being used. Hence, even with 20 more rows query 2 has a lower query cost than query one, thereby increasing the performance and is more optimized. **Therefore we have chosen query 2 over query 1. ** <br>
+<br>
+**Note:**  WHERE restricts the result set before returning rows and HAVING restricts the result set after bringing all the rows. Therefore, WHERE is faster. MySQL for example, applies HAVING almost last in the chain, meaning there is almost no room for optimization so one needs to avoid the HAVING clause, whenever possible as it filters the selected tuples only after all the tuples have been fetched. <br>
+
+## 9. Index is created on labName column for query 2. 
+<br>
+We're creating an index on labName which is not a key attribute.
+<br>
+
+**Query alternative 2 with index** <br> <br>
+CREATE INDEX lbn ON lab(labName); <br>
+SELECT Count(test.testID), lab.labName <br>
+FROM lab,test <br>
+WHERE test.labID = lab.labID <br>
+AND lab.labName = 'cursus' <br>
+GROUP BY lab.labID; <br>
+
+![Fig : Query evaluation of query with index](query9.png)
+
+<br> **Visual explain plan with index**
+
+![Fig : Query evaluation of query2 Visually](Q9_visual.png)
+
+<br> As seen in the above visual explain plan, the number of rows to be examined has reduced from 50 rows to 1 row on using an index and in total the estimated query cost is only 0.74 milliseconds which is very low when compared to the query that does not use an index.
+<br>
+This is because indexing makes columns faster to query by creating pointers to where data is stored within a database. Without index, to get records with the *labName* as ‘cursus’ from the database, there will be a need to look through every row until it finds it. An index is a copy of information from a table that speeds up retrieval of rows from the table or view. Indexes speed up performance by ordering the data on disk so it's quicker to find your result or telling the SQL engine where to go to find your data. <br>
+<br>
+
+<center>Thank you</center>
