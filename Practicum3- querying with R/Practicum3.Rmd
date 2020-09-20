@@ -1,0 +1,190 @@
+---
+title: "Practicum III / Mine a Database"
+output: html_notebook
+---
+ 
+**Saisrihitha Yadlapalli**
+<br><br>
+
+### In an R Notebook:
+
+<br>
+
+#### 1.Inspect the Plant Catalog XML
+```{r}
+if("XML" %in% rownames(installed.packages()) == FALSE) {
+  install.packages("XML")
+}
+library(XML)
+xmlPlant <- xmlParse("plants.xml")
+xmlPlant
+```
+<br>
+
+#### 2.Load the Plant Catalog XML directly into a dataframe using xmlToDataFrame.
+```{r}
+library(XML)
+plants = xmlToDataFrame("plants.xml")
+plants
+```
+<br>
+
+#### 3.Create a new column retail that is a numeric column and has the data from the price column; note that the price column is text and contains a leading '$' and needs to be parsed properly.
+```{r}
+if("stringi" %in% rownames(installed.packages()) == FALSE) {
+  install.packages("stringi")
+}
+library(stringi)
+plants$RETAIL = as.numeric(stri_replace_all_fixed(plants$PRICE,"$",""))
+plants
+```
+<br>
+
+#### 4.Remove the original price column (the one that is text) from the dataframe.
+```{r}
+plants$PRICE <- NULL
+plants
+```
+<br>
+
+#### 5.Update all prices: increase them by 4.25%.
+```{r}
+plants$RETAIL <- plants$RETAIL + (0.0425 * plants$RETAIL)
+plants
+```
+<br>
+
+#### 6.Create a histogram of the number of plants by price. Adorn the chart.
+
+```{r}
+price<- plants$RETAIL
+heatcols <- heat.colors(7)
+hist(price,main="Histogram of plant price frequency",
+     xlab="Price of plants",
+     ylab="Number of plants",
+     xlim=c(0,12),
+     col= heatcols,
+     labels=TRUE)
+```
+<br>
+
+#### 7.Using sqldf create a SQL query that finds the common names of all plants that cost less than $8 and grow in Sunny light.
+```{r warning = FALSE, message= FALSE}
+if("sqldf" %in% rownames(installed.packages()) == FALSE) {
+  install.packages("sqldf")
+}
+library(sqldf)
+```
+```{r}
+sqldf("SELECT COMMON FROM plants WHERE RETAIL < 8 AND LIGHT = 'Sunny'")
+```
+
+<br>
+
+#### 8.Using either sqldf or dataframe functions, how many plants grow in full shade?
+```{r}
+sqldf("SELECT COUNT(*) AS 'number of plants that grow in full shade' FROM plants WHERE LIGHT = 'Shade'")
+```
+<br>
+
+#### 9.Write the dataframe to a new table in a new SQLite database using the dbWriteTable function.
+```{r}
+if("DBI" %in% rownames(installed.packages()) == FALSE) {
+  install.packages("DBI")
+}
+library(DBI)
+fn <- "plantsSQL.db"
+if (file.exists(fn)) 
+  file.remove(fn)
+con <- dbConnect(RSQLite::SQLite(), "plantsSQL.db")
+dbWriteTable(con, "plantsSQL", plants)
+```
+<br>
+
+### In SQLite:
+
+<br>
+
+#### 1.Inspect the database created in (9) above. Is the table there? What is its name? Are the columns correct?
+
+<br>
+Yes, as can be seen in the image below the 'plants' dataframe that was written into a new table 'plantsSQL' in step (9) is present in the SQLite database.<br>
+<br>
+The name of the table is 'plantsSQL'. <br>
+
+<br>
+
+![Fig: plantsSQL table created in SQLite](table.png)
+<br>
+<br>
+
+Yes, all the columns as can be seen in the image below, 'COMMON', 'BOTANICAL', 'ZONE', 'LIGHT', 'AVAILABILITY' and 'RETAIL' that are present in the dataframe are present correctly in the table 'plantsSQL' as well.
+
+<br>
+<br>
+
+![Fig: Columns of plantsSQL table](columns.png)
+<br>
+
+<br>
+
+
+#### 2.Write a SQL UPDATE statement that decreases all prices by 0.75%.
+
+<br>
+
+![Fig: SQL UPDATE statement that decreases all prices by 0.75% in SQLite](update.png)
+
+
+
+
+![Fig: After the update](Updated price.png)
+
+<br>
+
+<br>
+
+### In R Studio:
+
+<br>
+
+#### 1.Connect to the SQLite database from above.
+
+```{r}
+con <- dbConnect(SQLite(), dbname="plantsSQL.db" )
+dbReadTable(con, "plantsSQL")
+```
+<br>
+
+#### 2.Build and execute a SQL query that finds the number of plants by light.
+```{r}
+result <- dbGetQuery(con, "SELECT COUNT(*) AS 'number of plants by light', LIGHT FROM plantsSQL GROUP BY LIGHT")
+result
+dbDisconnect(con)
+```
+<br>
+
+### In R Studio:
+
+<br>
+
+#### 1.Parse the Plant Catalog XML and write an XPath query that finds all plants that grow in full shade or in full sun.
+```{r}
+result <- xmlParse("plants.xml") 
+result1 <- xpathSApply(result,"/CATALOG/PLANT[ LIGHT = 'Sun' or LIGHT = 'Shade']")
+result1
+```
+<br>
+
+#### 2.Put the result from the previous XPath query into a dataframe and then calculate the 10% trimmed mean of the prices.
+```{r}
+df<-xmlToDataFrame(result1)
+df
+library(stringi)
+mean(as.numeric(stri_replace_all_fixed(df$PRICE,"$","")), trim=0.1)
+```
+<br>
+<center>
+## Thank you!
+</center>
+
